@@ -25,11 +25,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,20 +41,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.venderecultus.android_labs2.ui.theme.Android_labs2Theme
 
-data class Book(val id: Int, val title: String, val author: String, val year: String, val rating: Float = 3f)
-
-class LibraryViewModel : ViewModel() {
-    val books = mutableStateListOf(
-        Book(1, "1984", "George Orwell", "1949", 5f),
-        Book(2, "Pride and Prejudice", "Jane Austen", "1813", 4f),
-        Book(3, "The Great Gatsby", "F. Scott Fitzgerald", "1925", 5f),
-        Book(4, "To Kill a Mockingbird", "Harper Lee", "1960", 5f),
-        Book(5, "The Little Prince", "Antoine de Saint-Exupéry", "1943", 5f)
-    )
-    private var nextId = 6
-    fun addBook(title: String, author: String, year: String) { books.add(Book(nextId++, title, author, year)) }
-}
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +52,7 @@ class MainActivity : ComponentActivity() {
 private fun LibraryApp() {
     val nav = rememberNavController()
     val viewModel: LibraryViewModel = viewModel()
-    val books = viewModel.books
+    val books by viewModel.books.collectAsStateWithLifecycle()
 
     Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
         NavHost(navController = nav, startDestination = "books", modifier = Modifier.padding(padding)) {
@@ -96,15 +81,18 @@ private fun LibraryApp() {
                 }, onCancel = { nav.popBackStack() })
             }
             composable("edit/{bookId}", arguments = listOf(navArgument("bookId") { type = NavType.IntType })) { entry ->
-                val book = books.find { it.id == entry.arguments?.getInt("bookId") }
+                val bookId = entry.arguments?.getInt("bookId") ?: -1
+                val loadedBook by viewModel.book(bookId).collectAsStateWithLifecycle(initialValue = null)
+                val book = loadedBook
                 if (book != null) BookForm("Edit book", book, onSave = { title, author, year ->
-                    val index = books.indexOfFirst { it.id == book.id }
-                    if (index >= 0) books[index] = book.copy(title = title, author = author, year = year)
+                    viewModel.updateBook(book.copy(title = title, author = author, year = year))
                     nav.popBackStack()
                 }, onCancel = { nav.popBackStack() }) else nav.popBackStack()
             }
             composable("details/{bookId}", arguments = listOf(navArgument("bookId") { type = NavType.IntType })) { entry ->
-                val book = books.find { it.id == entry.arguments?.getInt("bookId") }
+                val bookId = entry.arguments?.getInt("bookId") ?: -1
+                val loadedBook by viewModel.book(bookId).collectAsStateWithLifecycle(initialValue = null)
+                val book = loadedBook
                 if (book != null) {
                     var rating by remember(book.id) { mutableFloatStateOf(book.rating) }
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
@@ -117,14 +105,13 @@ private fun LibraryApp() {
                         Spacer(Modifier.height(24.dp))
                         Text("Rating: ${rating.toInt()} out of 5", style = MaterialTheme.typography.titleMedium)
                         Slider(value = rating, onValueChange = { rating = it }, onValueChangeFinished = {
-                            val index = books.indexOfFirst { it.id == book.id }
-                            if (index >= 0) books[index] = books[index].copy(rating = rating)
+                            viewModel.updateBook(book.copy(rating = rating))
                         }, valueRange = 1f..5f, steps = 3)
                         Text("${"★".repeat(rating.toInt())}${"☆".repeat(5 - rating.toInt())}", color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(20.dp))
                         Button(onClick = { nav.navigate("edit/${book.id}") }, modifier = Modifier.fillMaxWidth()) { Text("Edit") }
                         Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = { books.removeAll { it.id == book.id }; nav.popBackStack("books", false) }, modifier = Modifier.fillMaxWidth()) { Text("Delete") }
+                        OutlinedButton(onClick = { viewModel.deleteBook(book); nav.popBackStack("books", false) }, modifier = Modifier.fillMaxWidth()) { Text("Delete") }
                     }
                 } else nav.popBackStack("books", false)
             }
